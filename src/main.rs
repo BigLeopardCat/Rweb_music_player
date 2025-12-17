@@ -13,6 +13,7 @@ use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
+use std::future::IntoFuture;
 use std::io::{BufReader, Cursor};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -262,9 +263,10 @@ impl PlaylistsManager {
         }
         // Fallback or migration could go here, but for now we start fresh if schema mismatches
         let mut lists = HashMap::new();
+        lists.insert("Default List".to_string(), Vec::new());
         lists.insert("默认列表".to_string(), Vec::new());
         Self {
-            current_name: "默认列表".to_string(),
+            current_name: "Default List".to_string(),
             lists,
         }
     }
@@ -470,8 +472,8 @@ async fn api_delete_playlist(
             if let Some(first) = data.lists.keys().next().cloned() {
                 data.current_name = first;
             } else {
-                data.lists.insert("默认列表".to_string(), Vec::new());
-                data.current_name = "默认列表".to_string();
+                data.lists.insert("Default List".to_string(), Vec::new());
+                data.current_name = "Default List".to_string();
             }
         }
         data.save();
@@ -492,14 +494,46 @@ enum PlaybackMode {
 }
 
 impl PlaybackMode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            PlaybackMode::Order => "顺序播放",
-            PlaybackMode::ListLoop => "列表循环",
-            PlaybackMode::SingleLoop => "单曲循环",
-            PlaybackMode::Single => "单曲播放",
+    fn as_str(&self, lang: Language) -> &'static str {
+        match lang {
+            Language::Chinese => match self {
+                PlaybackMode::Order => "顺序播放",
+                PlaybackMode::ListLoop => "列表循环",
+                PlaybackMode::SingleLoop => "单曲循环",
+                PlaybackMode::Single => "单曲播放",
+            },
+            Language::English => match self {
+                PlaybackMode::Order => "Order",
+                PlaybackMode::ListLoop => "List Loop",
+                PlaybackMode::SingleLoop => "Single Loop",
+                PlaybackMode::Single => "Single",
+            },
         }
     }
+}
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+enum Language {
+    Chinese,
+    English,
+}
+
+impl Language {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Language::Chinese => "中文",
+            Language::English => "English",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum PlayerStatus {
+    Ready,
+    Playing(String),
+    Finished,
+    Stopped,
+    Paused,
 }
 
 struct MusicPlayerApp {
@@ -507,7 +541,7 @@ struct MusicPlayerApp {
     audio_rx: Receiver<AudioStatus>,
     data: Arc<Mutex<PlaylistsManager>>,
     volume: f32,
-    status_text: String,
+    player_status: PlayerStatus,
     api_port: u16,
     port_tx: mpsc::UnboundedSender<u16>,
     port_input: String,
@@ -532,6 +566,9 @@ struct MusicPlayerApp {
     rename_playlist_name: String,
     show_delete_playlist_dialog: bool,
     playlist_to_delete: Option<String>,
+
+    // Language
+    language: Language,
 }
 
 impl MusicPlayerApp {
@@ -550,7 +587,7 @@ impl MusicPlayerApp {
             audio_rx,
             data,
             volume: 1.0,
-            status_text: "就绪".to_string(),
+            player_status: PlayerStatus::Ready,
             api_port: port,
             port_tx,
             port_input: port.to_string(),
@@ -569,13 +606,15 @@ impl MusicPlayerApp {
             rename_playlist_name: "".to_string(),
             show_delete_playlist_dialog: false,
             playlist_to_delete: None,
+            language: Language::Chinese,
         }
     }
 
     fn play_file(&mut self, path: PathBuf) {
         let _ = self.audio_tx.send(AudioCommand::PlayFile(path.clone()));
         self.current_playing_file = Some(path.clone());
-        self.status_text = format!("正在播放: {:?}", path.file_name().unwrap_or_default());
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        self.player_status = PlayerStatus::Playing(file_name.to_string());
         self.is_playing = true;
         self.last_sync_time = Some(Instant::now());
         self.current_position = Duration::from_secs(0);
@@ -624,7 +663,7 @@ impl MusicPlayerApp {
                 self.play_file(path);
             } else if next_idx.is_none() {
                 self.is_playing = false;
-                self.status_text = "播放结束".to_string();
+                self.player_status = PlayerStatus::Finished;
             }
         }
     }
@@ -666,12 +705,46 @@ impl eframe::App for MusicPlayerApp {
         // Status Bar (Bottom)
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(format!("状态: {}", self.status_text));
+                let status_label = match self.language {
+                    Language::Chinese => "状态",
+                    Language::English => "Status",
+                };
+                let status_text = match &self.player_status {
+                    PlayerStatus::Ready => match self.language {
+                        Language::Chinese => "就绪".to_string(),
+                        Language::English => "Ready".to_string(),
+                    },
+                    PlayerStatus::Playing(name) => match self.language {
+                        Language::Chinese => format!("正在播放: {}", name),
+                        Language::English => format!("Playing: {}", name),
+                    },
+                    PlayerStatus::Finished => match self.language {
+                        Language::Chinese => "播放结束".to_string(),
+                        Language::English => "Playback Finished".to_string(),
+                    },
+                    PlayerStatus::Stopped => match self.language {
+                        Language::Chinese => "已停止".to_string(),
+                        Language::English => "Stopped".to_string(),
+                    },
+                    PlayerStatus::Paused => match self.language {
+                        Language::Chinese => "已暂停".to_string(),
+                        Language::English => "Paused".to_string(),
+                    },
+                };
+                ui.label(format!("{}: {}", status_label, status_text));
             });
             ui.horizontal(|ui| {
-                ui.label("API 端口:");
+                let port_label = match self.language {
+                    Language::Chinese => "API 端口:",
+                    Language::English => "API Port:",
+                };
+                ui.label(port_label);
                 ui.add(egui::TextEdit::singleline(&mut self.port_input).desired_width(50.0));
-                if ui.button("应用").clicked() {
+                let apply_label = match self.language {
+                    Language::Chinese => "应用",
+                    Language::English => "Apply",
+                };
+                if ui.button(apply_label).clicked() {
                     if let Ok(new_port) = self.port_input.parse::<u16>() {
                         if new_port != self.api_port {
                             self.api_port = new_port;
@@ -681,24 +754,54 @@ impl eframe::App for MusicPlayerApp {
                         }
                     }
                 }
-                ui.label(format!("(当前: {})", self.api_port));
+                let current_label = match self.language {
+                    Language::Chinese => "当前",
+                    Language::English => "Current",
+                };
+                ui.label(format!("({}: {})", current_label, self.api_port));
             });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Rweb 音乐播放器");
+            ui.horizontal(|ui| {
+                ui.heading("Rweb Music Player");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    egui::ComboBox::from_id_salt("lang_selector")
+                        .selected_text(self.language.as_str())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.language, Language::Chinese, "中文");
+                            ui.selectable_value(&mut self.language, Language::English, "English");
+                        });
+                });
+            });
 
             // Playback Controls
             ui.horizontal(|ui| {
-                if ui.button(if self.is_playing { "⏸ 暂停" } else { "▶ 播放" }).clicked() {
+                let play_label = if self.is_playing { 
+                    match self.language {
+                        Language::Chinese => "⏸ 暂停",
+                        Language::English => "⏸ Pause",
+                    }
+                } else { 
+                    match self.language {
+                        Language::Chinese => "▶ 播放",
+                        Language::English => "▶ Play",
+                    }
+                };
+                if ui.button(play_label).clicked() {
                     if self.is_playing {
                         let _ = self.audio_tx.send(AudioCommand::Pause);
                         self.is_playing = false; // Immediate feedback
+                        self.player_status = PlayerStatus::Paused;
                         self.last_sync_time = None;
                     } else {
                         if self.current_playing_file.is_some() {
                             let _ = self.audio_tx.send(AudioCommand::Resume);
                             self.is_playing = true;
+                            if let Some(path) = &self.current_playing_file {
+                                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                self.player_status = PlayerStatus::Playing(name);
+                            }
                             self.last_sync_time = Some(Instant::now());
                         } else {
                             // Try play first in list
@@ -706,21 +809,26 @@ impl eframe::App for MusicPlayerApp {
                         }
                     }
                 }
-                if ui.button("⏹ 停止").clicked() {
+                let stop_label = match self.language {
+                    Language::Chinese => "⏹ 停止",
+                    Language::English => "⏹ Stop",
+                };
+                if ui.button(stop_label).clicked() {
                     let _ = self.audio_tx.send(AudioCommand::Stop);
                     self.current_position = Duration::from_secs(0);
                     self.is_playing = false;
+                    self.player_status = PlayerStatus::Stopped;
                     self.last_sync_time = None;
                 }
                 
                 // Mode Selector
                 egui::ComboBox::from_id_salt("mode_selector")
-                    .selected_text(self.playback_mode.as_str())
+                    .selected_text(self.playback_mode.as_str(self.language))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::Order, "顺序播放");
-                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::ListLoop, "列表循环");
-                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::SingleLoop, "单曲循环");
-                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::Single, "单曲播放");
+                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::Order, PlaybackMode::Order.as_str(self.language));
+                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::ListLoop, PlaybackMode::ListLoop.as_str(self.language));
+                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::SingleLoop, PlaybackMode::SingleLoop.as_str(self.language));
+                        ui.selectable_value(&mut self.playback_mode, PlaybackMode::Single, PlaybackMode::Single.as_str(self.language));
                     });
             });
 
@@ -780,7 +888,11 @@ impl eframe::App for MusicPlayerApp {
 
             // Volume Control
             ui.horizontal(|ui| {
-                ui.label("音量");
+                let vol_label = match self.language {
+                    Language::Chinese => "音量",
+                    Language::English => "Volume",
+                };
+                ui.label(vol_label);
                 if ui.add(egui::Slider::new(&mut self.volume, 0.0..=1.0)).changed() {
                     let _ = self.audio_tx.send(AudioCommand::SetVolume(self.volume));
                 }
@@ -792,7 +904,11 @@ impl eframe::App for MusicPlayerApp {
             let mut data = self.data.lock().unwrap();
             
             ui.horizontal(|ui| {
-                ui.label("当前歌单:");
+                let playlist_label = match self.language {
+                    Language::Chinese => "当前歌单:",
+                    Language::English => "Playlist:",
+                };
+                ui.label(playlist_label);
                 egui::ComboBox::from_id_salt("playlist_selector")
                     .selected_text(&data.current_name)
                     .show_ui(ui, |ui| {
@@ -803,12 +919,18 @@ impl eframe::App for MusicPlayerApp {
                         }
                     });
                 
-                if ui.button("✏").on_hover_text("重命名当前歌单").clicked() {
+                if ui.button("✏").on_hover_text(match self.language {
+                    Language::Chinese => "重命名当前歌单",
+                    Language::English => "Rename current playlist",
+                }).clicked() {
                     self.rename_playlist_name = data.current_name.clone();
                     self.show_rename_dialog = true;
                 }
 
-                if ui.button("🗑").on_hover_text("删除当前歌单").clicked() {
+                if ui.button("🗑").on_hover_text(match self.language {
+                    Language::Chinese => "删除当前歌单",
+                    Language::English => "Delete current playlist",
+                }).clicked() {
                     if data.lists.len() > 1 {
                         self.playlist_to_delete = Some(data.current_name.clone());
                         self.show_delete_playlist_dialog = true;
@@ -818,7 +940,11 @@ impl eframe::App for MusicPlayerApp {
 
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut self.new_playlist_name);
-                if ui.button("新建歌单").clicked() {
+                let new_playlist_label = match self.language {
+                    Language::Chinese => "新建歌单",
+                    Language::English => "New Playlist",
+                };
+                if ui.button(new_playlist_label).clicked() {
                     if !self.new_playlist_name.is_empty() {
                         data.lists.entry(self.new_playlist_name.clone()).or_default();
                         data.current_name = self.new_playlist_name.clone();
@@ -835,7 +961,11 @@ impl eframe::App for MusicPlayerApp {
 
             // File Management
             ui.horizontal(|ui| {
-                if ui.button("添加文件").clicked() {
+                let add_file_label = match self.language {
+                    Language::Chinese => "添加文件",
+                    Language::English => "Add Files",
+                };
+                if ui.button(add_file_label).clicked() {
                     if let Some(paths) = rfd::FileDialog::new().pick_files() {
                         let mut data = self.data.lock().unwrap();
                         let current_name = data.current_name.clone();
@@ -867,7 +997,11 @@ impl eframe::App for MusicPlayerApp {
                         data.save();
                     }
                 }
-                if ui.button("清空当前列表").clicked() {
+                let clear_list_label = match self.language {
+                    Language::Chinese => "清空当前列表",
+                    Language::English => "Clear List",
+                };
+                if ui.button(clear_list_label).clicked() {
                     let mut data = self.data.lock().unwrap();
                     let current_name = data.current_name.clone();
                     if let Some(list) = data.lists.get_mut(&current_name) {
@@ -880,7 +1014,11 @@ impl eframe::App for MusicPlayerApp {
             // Re-acquire lock for display
             let mut data = self.data.lock().unwrap();
 
-            ui.label(format!("列表内容 ({}) :", data.current_name));
+            let list_content_label = match self.language {
+                Language::Chinese => format!("列表内容 ({}) :", data.current_name),
+                Language::English => format!("Playlist Content ({}) :", data.current_name),
+            };
+            ui.label(list_content_label);
             
             // Display Playlist
             let current_list = data.lists.get(&data.current_name).cloned().unwrap_or_default();
@@ -909,11 +1047,19 @@ impl eframe::App for MusicPlayerApp {
                         }
                         
                         if !exists {
-                            response.clone().on_hover_text(format!("文件不存在: {:?}", item.path));
+                            let not_exist_text = match self.language {
+                                Language::Chinese => format!("文件不存在: {:?}", item.path),
+                                Language::English => format!("File not found: {:?}", item.path),
+                            };
+                            response.clone().on_hover_text(not_exist_text);
                         }
 
                         response.context_menu(|ui| {
-                            if ui.button("从列表中删除").clicked() {
+                            let remove_label = match self.language {
+                                Language::Chinese => "从列表中删除",
+                                Language::English => "Remove from list",
+                            };
+                            if ui.button(remove_label).clicked() {
                                 item_to_delete = Some(index);
                                 ui.close();
                             }
@@ -940,13 +1086,25 @@ impl eframe::App for MusicPlayerApp {
         });
 
         if self.show_duplicate_dialog {
-            egui::Window::new("发现同名文件")
+            let title = match self.language {
+                Language::Chinese => "发现同名文件",
+                Language::English => "Duplicate Files Found",
+            };
+            egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(format!("发现 {} 个同名文件，是否重命名并添加？", self.pending_files.len()));
+                    let msg = match self.language {
+                        Language::Chinese => format!("发现 {} 个同名文件，是否重命名并添加？", self.pending_files.len()),
+                        Language::English => format!("Found {} duplicate files. Rename and add?", self.pending_files.len()),
+                    };
+                    ui.label(msg);
                     ui.horizontal(|ui| {
-                        if ui.button("添加并重命名").clicked() {
+                        let add_rename_label = match self.language {
+                            Language::Chinese => "添加并重命名",
+                            Language::English => "Add & Rename",
+                        };
+                        if ui.button(add_rename_label).clicked() {
                             let mut data = self.data.lock().unwrap();
                             let current_name = data.current_name.clone();
                             let list = data.lists.entry(current_name).or_default();
@@ -964,7 +1122,11 @@ impl eframe::App for MusicPlayerApp {
                             data.save();
                             self.show_duplicate_dialog = false;
                         }
-                        if ui.button("取消").clicked() {
+                        let cancel_label = match self.language {
+                            Language::Chinese => "取消",
+                            Language::English => "Cancel",
+                        };
+                        if ui.button(cancel_label).clicked() {
                             self.pending_files.clear();
                             self.show_duplicate_dialog = false;
                         }
@@ -973,13 +1135,21 @@ impl eframe::App for MusicPlayerApp {
         }
 
         if self.show_rename_dialog {
-            egui::Window::new("重命名歌单")
+            let title = match self.language {
+                Language::Chinese => "重命名歌单",
+                Language::English => "Rename Playlist",
+            };
+            egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.text_edit_singleline(&mut self.rename_playlist_name);
                     ui.horizontal(|ui| {
-                        if ui.button("确定").clicked() {
+                        let ok_label = match self.language {
+                            Language::Chinese => "确定",
+                            Language::English => "OK",
+                        };
+                        if ui.button(ok_label).clicked() {
                             if !self.rename_playlist_name.is_empty() {
                                 let mut data = self.data.lock().unwrap();
                                 let old_name = data.current_name.clone();
@@ -993,7 +1163,11 @@ impl eframe::App for MusicPlayerApp {
                             }
                             self.show_rename_dialog = false;
                         }
-                        if ui.button("取消").clicked() {
+                        let cancel_label = match self.language {
+                            Language::Chinese => "取消",
+                            Language::English => "Cancel",
+                        };
+                        if ui.button(cancel_label).clicked() {
                             self.show_rename_dialog = false;
                         }
                     });
@@ -1001,15 +1175,27 @@ impl eframe::App for MusicPlayerApp {
         }
 
         if self.show_delete_playlist_dialog {
-             egui::Window::new("确认删除")
+             let title = match self.language {
+                 Language::Chinese => "确认删除",
+                 Language::English => "Confirm Delete",
+             };
+             egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
                     if let Some(name) = &self.playlist_to_delete {
-                        ui.label(format!("确定要删除歌单 '{}' 吗？", name));
+                        let msg = match self.language {
+                            Language::Chinese => format!("确定要删除歌单 '{}' 吗？", name),
+                            Language::English => format!("Are you sure you want to delete playlist '{}'?", name),
+                        };
+                        ui.label(msg);
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("确定").clicked() {
+                        let ok_label = match self.language {
+                            Language::Chinese => "确定",
+                            Language::English => "OK",
+                        };
+                        if ui.button(ok_label).clicked() {
                             if let Some(name) = &self.playlist_to_delete {
                                 let mut data = self.data.lock().unwrap();
                                 data.lists.remove(name);
@@ -1018,8 +1204,8 @@ impl eframe::App for MusicPlayerApp {
                                     if let Some(first) = data.lists.keys().next().cloned() {
                                         data.current_name = first;
                                     } else {
-                                        data.lists.insert("默认列表".to_string(), Vec::new());
-                                        data.current_name = "默认列表".to_string();
+                                        data.lists.insert("Default List".to_string(), Vec::new());
+                                        data.current_name = "Default List".to_string();
                                     }
                                 }
                                 data.save();
@@ -1027,7 +1213,11 @@ impl eframe::App for MusicPlayerApp {
                             self.show_delete_playlist_dialog = false;
                             self.playlist_to_delete = None;
                         }
-                        if ui.button("取消").clicked() {
+                        let cancel_label = match self.language {
+                            Language::Chinese => "取消",
+                            Language::English => "Cancel",
+                        };
+                        if ui.button(cancel_label).clicked() {
                             self.show_delete_playlist_dialog = false;
                             self.playlist_to_delete = None;
                         }

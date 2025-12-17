@@ -1,0 +1,43 @@
+Rweb Music Player
+Copyright 2025 BigLeopardCat
+
+This product includes software developed by BigLeopardCat.
+
+=========================================================================
+FONT USAGE NOTICE
+=========================================================================
+This software, when running on Windows operating systems, utilizes the 
+"Microsoft YaHei" (微软雅黑) font, which is a proprietary font owned by 
+Microsoft Corporation.
+
+This software does NOT distribute the font file itself. It only references 
+the font installed on the user's system. Users are responsible for ensuring 
+they have the appropriate license to use this font on their system.
+
+If you are running this software on a non-Windows platform, or if you wish 
+to use a different font, you must modify the source code configuration.
+
+=========================================================================
+THIRD-PARTY SOFTWARE NOTICES
+=========================================================================
+This software includes the following third-party open source software:
+
+1. egui (https://github.com/emilk/egui)
+   Copyright (c) 2018-2021 Emil Ernerfeldt
+   Licensed under MIT or Apache-2.0
+
+2. axum (https://github.com/tokio-rs/axum)
+   Copyright (c) 2019 Tokio Contributors
+   Licensed under MIT
+
+3. rodio (https://github.com/RustAudio/rodio)
+   Copyright (c) 2015 Pierre Krieger
+   Licensed under MIT or Apache-2.0
+
+4. lofty (https://github.com/Serial-ATA/lofty-rs)
+   Copyright (c) 2021 Serial-ATA
+   Licensed under MIT or Apache-2.0
+
+5. tokio (https://github.com/tokio-rs/tokio)
+   Copyright (c) 2019 Tokio Contributors
+   Licensed under MIT
