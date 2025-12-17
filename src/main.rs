@@ -40,6 +40,7 @@ enum AudioStatus {
         is_playing: bool,
     },
     Finished,
+    Started(PathBuf),
 }
 
 fn start_audio_thread() -> (Sender<AudioCommand>, Receiver<AudioStatus>) {
@@ -97,6 +98,7 @@ fn start_audio_thread() -> (Sender<AudioCommand>, Receiver<AudioStatus>) {
                                     seek_offset = Duration::from_secs(0);
                                     is_playing = true;
                                     has_started = true;
+                                    let _ = status_tx.send(AudioStatus::Started(path.clone()));
                                 }
                             }
                         }
@@ -693,6 +695,14 @@ impl eframe::App for MusicPlayerApp {
                 }
                 AudioStatus::Finished => {
                     self.play_next();
+                }
+                AudioStatus::Started(path) => {
+                    self.current_playing_file = Some(path.clone());
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    self.player_status = PlayerStatus::Playing(file_name);
+                    self.is_playing = true;
+                    self.last_sync_time = Some(Instant::now());
+                    self.current_position = Duration::from_secs(0);
                 }
             }
         }
