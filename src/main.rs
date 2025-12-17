@@ -284,7 +284,20 @@ impl PlaylistsManager {
 #[derive(Serialize, Deserialize, Clone)]
 struct AppConfig {
     port: u16,
+    #[serde(default = "default_font_size")]
+    lyrics_font_size: f32,
+    #[serde(default = "default_text_color")]
+    lyrics_text_color: [u8; 4],
+    #[serde(default = "default_bg_color")]
+    lyrics_bg_color: [u8; 4],
+    #[serde(default = "default_ui_bg_color")]
+    ui_bg_color: [u8; 4],
 }
+
+fn default_font_size() -> f32 { 32.0 }
+fn default_text_color() -> [u8; 4] { [255, 255, 255, 255] }
+fn default_bg_color() -> [u8; 4] { [0, 0, 0, 0] }
+fn default_ui_bg_color() -> [u8; 4] { [30, 30, 30, 255] }
 
 impl AppConfig {
     fn load() -> Self {
@@ -294,7 +307,13 @@ impl AppConfig {
                 return config;
             }
         }
-        let config = Self { port: 3000 };
+        let config = Self { 
+            port: 3000,
+            lyrics_font_size: default_font_size(),
+            lyrics_text_color: default_text_color(),
+            lyrics_bg_color: default_bg_color(),
+            ui_bg_color: default_ui_bg_color(),
+        };
         if let Ok(file) = File::create(&path) {
             let _ = serde_json::to_writer_pretty(file, &config);
         }
@@ -533,6 +552,80 @@ impl PlaybackMode {
     }
 }
 
+// --- Helper Functions ---
+
+fn parse_lrc(content: &str) -> Vec<(Duration, String)> {
+    let mut lyrics = Vec::new();
+    for line in content.lines() {
+        if let Some(start) = line.find('[') {
+            if let Some(end) = line.find(']') {
+                let time_part = &line[start+1..end];
+                let text_part = &line[end+1..];
+                let parts: Vec<&str> = time_part.split(':').collect();
+                if parts.len() == 2 {
+                    if let Ok(min) = parts[0].parse::<u64>() {
+                        let sec_parts: Vec<&str> = parts[1].split('.').collect();
+                        if !sec_parts.is_empty() {
+                             if let Ok(sec) = sec_parts[0].parse::<u64>() {
+                                 let millis = if sec_parts.len() > 1 {
+                                     let m_str = sec_parts[1];
+                                     let m = m_str.parse::<u64>().unwrap_or(0);
+                                     // .xx is hundredths (10ms), .xxx is millis (1ms)
+                                     if m_str.len() == 2 { m * 10 } else { m }
+                                 } else { 0 };
+                                 
+                                 let duration = Duration::from_secs(min * 60 + sec) + Duration::from_millis(millis);
+                                 lyrics.push((duration, text_part.trim().to_string()));
+                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    lyrics.sort_by_key(|k| k.0);
+    lyrics
+}
+
+fn scroll_label(ui: &mut egui::Ui, text: &str, max_width: f32, should_scroll: bool, time: f64) {
+    let font_id = egui::FontId::proportional(14.0);
+    let text_galley = ui.painter().layout_no_wrap(text.to_string(), font_id.clone(), ui.visuals().text_color());
+    let text_width = text_galley.size().x;
+
+    if text_width <= max_width || !should_scroll {
+        ui.add(egui::Label::new(egui::RichText::new(text)).truncate());
+    } else {
+        let speed = 30.0; 
+        let gap = 50.0;
+        let cycle_len = text_width + gap;
+        let offset = (time * speed as f64) % cycle_len as f64;
+        
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(max_width, text_galley.size().y), egui::Sense::hover());
+        
+        ui.painter().with_clip_rect(rect).add(egui::Shape::Text(egui::epaint::TextShape {
+            pos: rect.min - egui::vec2(offset as f32, 0.0),
+            galley: text_galley.clone(),
+            underline: egui::Stroke::NONE,
+            override_text_color: None,
+            angle: 0.0,
+            fallback_color: egui::Color32::WHITE,
+            opacity_factor: 1.0,
+        }));
+        
+        if offset as f32 + max_width > text_width + gap {
+             ui.painter().with_clip_rect(rect).add(egui::Shape::Text(egui::epaint::TextShape {
+                pos: rect.min - egui::vec2(offset as f32, 0.0) + egui::vec2(cycle_len, 0.0),
+                galley: text_galley,
+                underline: egui::Stroke::NONE,
+                override_text_color: None,
+                angle: 0.0,
+                fallback_color: egui::Color32::WHITE,
+                opacity_factor: 1.0,
+            }));
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum Language {
     Chinese,
@@ -557,6 +650,14 @@ enum PlayerStatus {
     Paused,
 }
 
+struct LyricsState {
+    current_lyric: String,
+    show_desktop_lyrics: bool,
+    font_size: f32,
+    text_color: egui::Color32,
+    bg_color: egui::Color32,
+}
+
 struct MusicPlayerApp {
     audio_tx: Sender<AudioCommand>,
     audio_rx: Receiver<AudioStatus>,
@@ -569,6 +670,14 @@ struct MusicPlayerApp {
     new_playlist_name: String,
     current_playing_file: Option<PathBuf>,
     
+    // Lyrics
+    lyrics: Vec<(Duration, String)>,
+    lyrics_state: Arc<Mutex<LyricsState>>,
+    show_lyrics_settings: bool,
+    
+    // UI Settings
+    ui_bg_color: egui::Color32,
+
     // Playback State
     playback_mode: PlaybackMode,
     current_position: Duration,
@@ -594,6 +703,9 @@ struct MusicPlayerApp {
 
 impl MusicPlayerApp {
     fn new(audio_tx: Sender<AudioCommand>, audio_rx: Receiver<AudioStatus>, data: Arc<Mutex<PlaylistsManager>>, port: u16, port_tx: mpsc::UnboundedSender<u16>, cc: &eframe::CreationContext<'_>) -> Self {
+        // Load Config for Lyrics
+        let config = AppConfig::load();
+        
         // Load Chinese font
         let mut fonts = egui::FontDefinitions::default();
         if let Ok(font_data) = std::fs::read("C:\\Windows\\Fonts\\msyh.ttc") {
@@ -602,6 +714,14 @@ impl MusicPlayerApp {
             fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap().push("msyh".to_owned());
             cc.egui_ctx.set_fonts(fonts);
         }
+
+        let lyrics_state = Arc::new(Mutex::new(LyricsState {
+            current_lyric: "".to_string(),
+            show_desktop_lyrics: false,
+            font_size: config.lyrics_font_size,
+            text_color: egui::Color32::from_rgba_unmultiplied(config.lyrics_text_color[0], config.lyrics_text_color[1], config.lyrics_text_color[2], config.lyrics_text_color[3]),
+            bg_color: egui::Color32::from_rgba_unmultiplied(config.lyrics_bg_color[0], config.lyrics_bg_color[1], config.lyrics_bg_color[2], config.lyrics_bg_color[3]),
+        }));
 
         Self {
             audio_tx,
@@ -614,6 +734,10 @@ impl MusicPlayerApp {
             port_input: port.to_string(),
             new_playlist_name: "".to_string(),
             current_playing_file: None,
+            lyrics: Vec::new(),
+            lyrics_state,
+            show_lyrics_settings: false,
+            ui_bg_color: egui::Color32::from_rgba_unmultiplied(config.ui_bg_color[0], config.ui_bg_color[1], config.ui_bg_color[2], config.ui_bg_color[3]),
             playback_mode: PlaybackMode::Order,
             current_position: Duration::from_secs(0),
             total_duration: Duration::from_secs(0),
@@ -691,7 +815,17 @@ impl MusicPlayerApp {
 }
 
 impl eframe::App for MusicPlayerApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::TRANSPARENT.to_array()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply UI Settings
+        let mut style = (*ctx.style()).clone();
+        style.visuals.panel_fill = self.ui_bg_color;
+        style.visuals.window_fill = egui::Color32::TRANSPARENT; // Ensure transparent background for viewports
+        ctx.set_style(style);
+
         // Handle Audio Events
         while let Ok(status) = self.audio_rx.try_recv() {
             match status {
@@ -722,13 +856,137 @@ impl eframe::App for MusicPlayerApp {
                     self.is_playing = true;
                     self.last_sync_time = Some(Instant::now());
                     self.current_position = Duration::from_secs(0);
+                    
+                    // Load Lyrics
+                    self.lyrics.clear();
+                    self.lyrics_state.lock().unwrap().current_lyric.clear();
+                    let lrc_path = path.with_extension("lrc");
+                    if lrc_path.exists() {
+                        if let Ok(content) = std::fs::read_to_string(lrc_path) {
+                            self.lyrics = parse_lrc(&content);
+                        }
+                    }
                 }
             }
         }
         
-        // Request repaint for smooth progress bar
-        if self.is_playing {
+        // Calculate current display position
+        let mut display_pos = self.current_position;
+        if self.is_playing && !self.is_seeking && self.seek_target.is_none() {
+            if let Some(last_time) = self.last_sync_time {
+                let elapsed = last_time.elapsed();
+                display_pos += elapsed;
+                if display_pos > self.total_duration {
+                    display_pos = self.total_duration;
+                }
+            }
+        }
+
+        // Update Lyrics
+        if !self.lyrics.is_empty() {
+            let mut new_lyric = "";
+            for (time, text) in &self.lyrics {
+                if *time <= display_pos {
+                    new_lyric = text;
+                } else {
+                    break;
+                }
+            }
+            
+            let mut state = self.lyrics_state.lock().unwrap();
+            if state.current_lyric != new_lyric {
+                state.current_lyric = new_lyric.to_string();
+            }
+        }
+
+        // Desktop Lyrics Window
+        let show_desktop_lyrics = self.lyrics_state.lock().unwrap().show_desktop_lyrics;
+        if show_desktop_lyrics {
+            let lyrics_viewport_id = egui::ViewportId::from_hash_of("lyrics_viewport");
+            let lyrics_state = self.lyrics_state.clone();
+            ctx.show_viewport_deferred(
+                lyrics_viewport_id,
+                egui::ViewportBuilder::default()
+                    .with_title("Lyrics")
+                    .with_inner_size([800.0, 100.0])
+                    .with_transparent(true)
+                    .with_decorations(false)
+                    .with_always_on_top()
+                    .with_taskbar(false)
+                    .with_resizable(true),
+                move |ctx, _class| {
+                    let mut state = lyrics_state.lock().unwrap();
+
+                    // Use Frame::NONE to ensure no default background/shadow/stroke is drawn
+                    let frame = egui::Frame::NONE;
+
+                    egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+                        let rect = ui.max_rect();
+                        
+                        // Manually paint background ONLY if alpha > 0
+                        if state.bg_color.a() > 0 {
+                            ui.painter().rect_filled(rect, 0.0, state.bg_color);
+                        }
+                        
+                        // Draw text
+                        ui.centered_and_justified(|ui| {
+                             ui.label(egui::RichText::new(&state.current_lyric)
+                                .size(state.font_size)
+                                .color(state.text_color)
+                                .strong());
+                        });
+
+                        // Close button (top-right)
+                        let close_btn_size = 24.0;
+                        let close_rect = egui::Rect::from_min_size(
+                            rect.right_top() + egui::vec2(-close_btn_size - 5.0, 5.0), 
+                            egui::vec2(close_btn_size, close_btn_size)
+                        );
+                        
+                        // Handle drag for the whole window
+                        let response = ui.interact(rect, ui.id(), egui::Sense::drag());
+                        if response.drag_started() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
+
+                        // Custom Close Button
+                        let close_id = ui.id().with("close_btn");
+                        let close_response = ui.interact(close_rect, close_id, egui::Sense::click());
+                        
+                        // Draw button background and icon
+                        let hovered = close_response.hovered();
+                        
+                        // Icon: Faint normally (20), white on hover (255)
+                        let stroke_alpha = if hovered { 255 } else { 20 };
+                        let stroke_color = egui::Color32::from_white_alpha(stroke_alpha);
+                        
+                        // Paint 'X' shape manually
+                        let painter = ui.painter();
+                        let center = close_rect.center();
+                        let radius = close_btn_size / 3.5;
+                        
+                        let stroke = egui::Stroke::new(2.0, stroke_color);
+                        painter.line_segment([center + egui::vec2(-radius, -radius), center + egui::vec2(radius, radius)], stroke);
+                        painter.line_segment([center + egui::vec2(radius, -radius), center + egui::vec2(-radius, radius)], stroke);
+
+                        if close_response.clicked() {
+                            state.show_desktop_lyrics = false;
+                        }
+                    });
+                    
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        state.show_desktop_lyrics = false;
+                    }
+                }
+            );
+        }
+        
+        // Request repaint for smooth progress bar and lyrics
+        if self.is_playing || show_desktop_lyrics {
             ctx.request_repaint();
+        }
+        if show_desktop_lyrics {
+            ctx.request_repaint_of(egui::ViewportId::from_hash_of("lyrics_viewport"));
         }
 
         // Status Bar (Bottom)
@@ -760,7 +1018,9 @@ impl eframe::App for MusicPlayerApp {
                         Language::English => "Paused".to_string(),
                     },
                 };
-                ui.label(format!("{}: {}", status_label, status_text));
+                let full_text = format!("{}: {}", status_label, status_text);
+                let available_width = ui.available_width();
+                scroll_label(ui, &full_text, available_width.max(100.0), true, ui.input(|i| i.time));
             });
             ui.horizontal(|ui| {
                 let port_label = match self.language {
@@ -777,7 +1037,14 @@ impl eframe::App for MusicPlayerApp {
                     if let Ok(new_port) = self.port_input.parse::<u16>() {
                         if new_port != self.api_port {
                             self.api_port = new_port;
-                            let config = AppConfig { port: new_port };
+                            let state = self.lyrics_state.lock().unwrap();
+                            let config = AppConfig { 
+                                port: new_port,
+                                lyrics_font_size: state.font_size,
+                                lyrics_text_color: state.text_color.to_array(),
+                                lyrics_bg_color: state.bg_color.to_array(),
+                                ui_bg_color: self.ui_bg_color.to_array(),
+                            };
                             config.save();
                             let _ = self.port_tx.send(new_port);
                         }
@@ -801,6 +1068,22 @@ impl eframe::App for MusicPlayerApp {
                             ui.selectable_value(&mut self.language, Language::Chinese, "中文");
                             ui.selectable_value(&mut self.language, Language::English, "English");
                         });
+                    
+                    let lyrics_label = match self.language {
+                        Language::Chinese => "桌面歌词",
+                        Language::English => "Desktop Lyrics",
+                    };
+                    let mut state = self.lyrics_state.lock().unwrap();
+                    if ui.selectable_label(state.show_desktop_lyrics, lyrics_label).clicked() {
+                        state.show_desktop_lyrics = !state.show_desktop_lyrics;
+                    }
+                    
+                    if ui.button("⚙").on_hover_text(match self.language {
+                        Language::Chinese => "歌词设置",
+                        Language::English => "Lyrics Settings",
+                    }).clicked() {
+                        self.show_lyrics_settings = !self.show_lyrics_settings;
+                    }
                 });
             });
 
@@ -860,6 +1143,18 @@ impl eframe::App for MusicPlayerApp {
                         ui.selectable_value(&mut self.playback_mode, PlaybackMode::Single, PlaybackMode::Single.as_str(self.language));
                     });
             });
+
+            // Main Window Lyrics Display
+            let state = self.lyrics_state.lock().unwrap();
+            if !state.current_lyric.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new(&state.current_lyric)
+                        .size(18.0)
+                        .color(state.text_color)
+                        .strong());
+                });
+            }
+            drop(state);
 
             // Progress Bar
             ui.horizontal(|ui| {
@@ -1061,17 +1356,74 @@ impl eframe::App for MusicPlayerApp {
                     
                     ui.horizontal(|ui| {
                         let text = format!("{}. {}", index, item.name);
-                        let label = if exists {
-                            egui::RichText::new(text)
-                        } else {
-                            egui::RichText::new(text).color(egui::Color32::RED).strikethrough()
-                        };
-
-                        let response = ui.selectable_label(is_current, label);
                         
+                        // Custom selectable label with scrolling
+                        let available_width = ui.available_width();
+                        let (rect, response) = ui.allocate_exact_size(egui::vec2(available_width, 20.0), egui::Sense::click());
+                        let is_hovered = response.hovered();
+
                         if response.clicked() {
                             if exists {
                                 file_to_play = Some(item.path.clone());
+                            }
+                        }
+
+                        // Draw background
+                        if is_current {
+                            ui.painter().rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
+                        } else if is_hovered {
+                            ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+                        }
+
+                        // Draw text
+                        let text_color = if !exists {
+                            egui::Color32::RED
+                        } else if is_current {
+                            ui.visuals().strong_text_color()
+                        } else {
+                            ui.visuals().text_color()
+                        };
+                        
+                        // Use a child UI to clip and scroll
+                        let child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
+                        // We need to manually implement scrolling here because scroll_label allocates its own rect
+                        // which might conflict or be easier to just inline.
+                        
+                        let font_id = egui::FontId::proportional(14.0);
+                        let text_galley = child_ui.painter().layout_no_wrap(text.clone(), font_id, text_color);
+                        let text_width = text_galley.size().x;
+                        
+                        if text_width <= rect.width() || !is_hovered {
+                            // Center vertically
+                            let pos = rect.min + egui::vec2(0.0, (rect.height() - text_galley.size().y) / 2.0);
+                            child_ui.painter().galley(pos, text_galley, egui::Color32::TRANSPARENT);
+                        } else {
+                            let speed = 30.0; 
+                            let gap = 50.0;
+                            let cycle_len = text_width + gap;
+                            let time = child_ui.input(|i| i.time);
+                            let offset = (time * speed as f64) % cycle_len as f64;
+                            
+                            child_ui.painter().with_clip_rect(rect).add(egui::Shape::Text(egui::epaint::TextShape {
+                                pos: rect.min + egui::vec2(-offset as f32, (rect.height() - text_galley.size().y) / 2.0),
+                                galley: text_galley.clone(),
+                                underline: egui::Stroke::NONE,
+                                override_text_color: None,
+                                angle: 0.0,
+                                fallback_color: egui::Color32::WHITE,
+                                opacity_factor: 1.0,
+                            }));
+                            
+                            if offset as f32 + rect.width() > text_width + gap {
+                                 child_ui.painter().with_clip_rect(rect).add(egui::Shape::Text(egui::epaint::TextShape {
+                                    pos: rect.min + egui::vec2(-offset as f32 + cycle_len as f32, (rect.height() - text_galley.size().y) / 2.0),
+                                    galley: text_galley,
+                                    underline: egui::Stroke::NONE,
+                                    override_text_color: None,
+                                    angle: 0.0,
+                                    fallback_color: egui::Color32::WHITE,
+                                    opacity_factor: 1.0,
+                                }));
                             }
                         }
                         
@@ -1119,9 +1471,12 @@ impl eframe::App for MusicPlayerApp {
                 Language::Chinese => "发现同名文件",
                 Language::English => "Duplicate Files Found",
             };
+            let mut open = true;
+            let mut should_close = false;
             egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
+                .open(&mut open)
                 .show(ctx, |ui| {
                     let msg = match self.language {
                         Language::Chinese => format!("发现 {} 个同名文件，是否重命名并添加？", self.pending_files.len()),
@@ -1149,7 +1504,7 @@ impl eframe::App for MusicPlayerApp {
                                 list.insert(0, PlaylistItem { path, name: final_name });
                             }
                             data.save();
-                            self.show_duplicate_dialog = false;
+                            should_close = true;
                         }
                         let cancel_label = match self.language {
                             Language::Chinese => "取消",
@@ -1157,10 +1512,99 @@ impl eframe::App for MusicPlayerApp {
                         };
                         if ui.button(cancel_label).clicked() {
                             self.pending_files.clear();
-                            self.show_duplicate_dialog = false;
+                            should_close = true;
                         }
                     });
                 });
+            if !open || should_close {
+                self.show_duplicate_dialog = false;
+            }
+        }
+
+        if self.show_lyrics_settings {
+            let title = match self.language {
+                Language::Chinese => "歌词设置",
+                Language::English => "Lyrics Settings",
+            };
+            let mut open = true;
+            let mut should_close = false;
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(true)
+                .default_size([300.0, 300.0])
+                .frame(egui::Frame::window(ctx.style().as_ref()).fill(self.ui_bg_color))
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    let mut state = self.lyrics_state.lock().unwrap();
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.heading(match self.language {
+                            Language::Chinese => "歌词设置",
+                            Language::English => "Lyrics Settings",
+                        });
+                        egui::Grid::new("lyrics_settings_grid").num_columns(2).show(ui, |ui| {
+                            ui.label(match self.language {
+                                Language::Chinese => "字体大小",
+                                Language::English => "Font Size",
+                            });
+                            ui.add(egui::Slider::new(&mut state.font_size, 10.0..=100.0));
+                            ui.end_row();
+
+                            ui.label(match self.language {
+                                Language::Chinese => "字体颜色",
+                                Language::English => "Text Color",
+                            });
+                            ui.color_edit_button_srgba(&mut state.text_color);
+                            ui.end_row();
+
+                            ui.label(match self.language {
+                                Language::Chinese => "背景颜色",
+                                Language::English => "Background Color",
+                            });
+                            ui.color_edit_button_srgba(&mut state.bg_color);
+                            ui.end_row();
+                        });
+
+                        ui.separator();
+                        
+                        ui.heading(match self.language {
+                            Language::Chinese => "界面设置",
+                            Language::English => "UI Settings",
+                        });
+                        ui.label(match self.language {
+                            Language::Chinese => "主界面背景",
+                            Language::English => "Main UI Background",
+                        });
+                        ui.color_edit_button_srgba(&mut self.ui_bg_color);
+
+                        ui.add_space(10.0);
+
+                        ui.horizontal(|ui| {
+                            if ui.button(match self.language {
+                                Language::Chinese => "保存设置",
+                                Language::English => "Save Settings",
+                            }).clicked() {
+                                let mut config = AppConfig::load();
+                                config.lyrics_font_size = state.font_size;
+                                config.lyrics_text_color = state.text_color.to_array();
+                                config.lyrics_bg_color = state.bg_color.to_array();
+                                config.ui_bg_color = self.ui_bg_color.to_array();
+                                if let Ok(file) = File::create(get_config_path("config.json")) {
+                                    let _ = serde_json::to_writer_pretty(file, &config);
+                                }
+                                should_close = true;
+                            }
+                            if ui.button(match self.language {
+                                Language::Chinese => "关闭",
+                                Language::English => "Close",
+                            }).clicked() {
+                                should_close = true;
+                            }
+                        });
+                    });
+                });
+            if !open || should_close {
+                self.show_lyrics_settings = false;
+            }
         }
 
         if self.show_rename_dialog {
@@ -1168,9 +1612,12 @@ impl eframe::App for MusicPlayerApp {
                 Language::Chinese => "重命名歌单",
                 Language::English => "Rename Playlist",
             };
+            let mut open = true;
+            let mut should_close = false;
             egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
+                .open(&mut open)
                 .show(ctx, |ui| {
                     ui.text_edit_singleline(&mut self.rename_playlist_name);
                     ui.horizontal(|ui| {
@@ -1190,17 +1637,20 @@ impl eframe::App for MusicPlayerApp {
                                     }
                                 }
                             }
-                            self.show_rename_dialog = false;
+                            should_close = true;
                         }
                         let cancel_label = match self.language {
                             Language::Chinese => "取消",
                             Language::English => "Cancel",
                         };
                         if ui.button(cancel_label).clicked() {
-                            self.show_rename_dialog = false;
+                            should_close = true;
                         }
                     });
                 });
+            if !open || should_close {
+                self.show_rename_dialog = false;
+            }
         }
 
         if self.show_delete_playlist_dialog {
@@ -1208,9 +1658,12 @@ impl eframe::App for MusicPlayerApp {
                  Language::Chinese => "确认删除",
                  Language::English => "Confirm Delete",
              };
+             let mut open = true;
+             let mut should_close = false;
              egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
+                .open(&mut open)
                 .show(ctx, |ui| {
                     if let Some(name) = &self.playlist_to_delete {
                         let msg = match self.language {
@@ -1239,7 +1692,7 @@ impl eframe::App for MusicPlayerApp {
                                 }
                                 data.save();
                             }
-                            self.show_delete_playlist_dialog = false;
+                            should_close = true;
                             self.playlist_to_delete = None;
                         }
                         let cancel_label = match self.language {
@@ -1247,11 +1700,14 @@ impl eframe::App for MusicPlayerApp {
                             Language::English => "Cancel",
                         };
                         if ui.button(cancel_label).clicked() {
-                            self.show_delete_playlist_dialog = false;
+                            should_close = true;
                             self.playlist_to_delete = None;
                         }
                     });
                 });
+            if !open || should_close {
+                self.show_delete_playlist_dialog = false;
+            }
         }
     }
 }
@@ -1327,7 +1783,8 @@ fn main() -> eframe::Result<()> {
     // 5. Run UI
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 600.0]),
+            .with_inner_size([400.0, 600.0])
+            .with_transparent(true),
         ..Default::default()
     };
     
