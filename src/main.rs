@@ -343,6 +343,11 @@ struct DeletePlaylistRequest {
     name: String,
 }
 
+#[derive(Deserialize)]
+struct SwitchPlaylistRequest {
+    name: String,
+}
+
 #[derive(Serialize)]
 struct PlaylistFile {
     path: String,
@@ -480,6 +485,20 @@ async fn api_delete_playlist(
         }
         data.save();
         Json("Playlist deleted".to_string())
+    } else {
+        Json("Playlist not found".to_string())
+    }
+}
+
+async fn api_switch_playlist(
+    State(state): State<AppState>,
+    Json(payload): Json<SwitchPlaylistRequest>,
+) -> Json<String> {
+    let mut data = state.data.lock().unwrap();
+    if data.lists.contains_key(&payload.name) {
+        data.current_name = payload.name.clone();
+        data.save();
+        Json(format!("Switched to playlist: {}", payload.name))
     } else {
         Json("Playlist not found".to_string())
     }
@@ -1267,6 +1286,7 @@ fn main() -> eframe::Result<()> {
                     .route("/playlist/remove", post(api_remove_from_playlist))
                     .route("/playlist/rename", post(api_rename_playlist))
                     .route("/playlist/delete", post(api_delete_playlist))
+                    .route("/playlist/switch", post(api_switch_playlist))
                     .with_state(app_state.clone());
 
                 let addr = format!("0.0.0.0:{}", active_port);

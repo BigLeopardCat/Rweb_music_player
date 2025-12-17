@@ -137,7 +137,24 @@ Delete a specific playlist.
 
 ---
 
-## 6. Python Client Example
+## 6. 切换歌单 / Switch Playlist
+
+切换当前活动的歌单。
+Switch the currently active playlist.
+
+*   **URL**: `/playlist/switch`
+*   **方法 / Method**: `POST`
+*   **Content-Type**: `application/json`
+
+### 请求参数 / Request Parameters
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `name` | string | Yes | Name of the playlist to switch to. |
+
+---
+
+## 7. Python Client Example
 
 ```python
 import requests
@@ -181,4 +198,8 @@ class MusicPlayerClient:
     def delete_playlist(self, name):
         payload = {"name": name}
         return self._post(f"{self.base_url}/playlist/delete", payload)
+
+    def switch_playlist(self, name):
+        payload = {"name": name}
+        return self._post(f"{self.base_url}/playlist/switch", payload)
 ```
