@@ -1,293 +1,57 @@
-ï»¿# éŸ³ä¹æ’­æ”¾å™¨ API æ–‡æ¡£
+<div align="center">
 
-æœ¬æ–‡æ¡£æè¿°äº†éŸ³ä¹æ’­æ”¾å™¨æä¾›çš„ HTTP API æ¥å£ï¼Œä¾›å¤–éƒ¨è„šæœ¬ï¼ˆå¦‚ Pythonï¼‰è°ƒç”¨ä»¥æ§åˆ¶æ’­æ”¾å™¨ã€‚
+# Rweb Music Player
 
-**åŸºç¡€ URL**: `http://127.0.0.1:<port>`
-*   é»˜è®¤ç«¯å£ä¸º `3000`ã€‚
-*   ç«¯å£å¯åœ¨ UI ç•Œé¢åº•éƒ¨ä¿®æ”¹ï¼Œæˆ–é€šè¿‡ç¨‹åºè‡ªåŠ¨ç”Ÿæˆçš„ `config.json` æ–‡ä»¶é…ç½®ã€‚
+[![English](https://img.shields.io/badge/Language-English-blue)](README_EN.md) [![Chinese](https://img.shields.io/badge/Language-ÖĞÎÄ-red)](README.md)
 
----
-
-## 1. æ’­æ”¾éŸ³ä¹
-
-æ§åˆ¶æ’­æ”¾å™¨æ’­æ”¾æŒ‡å®šæ–‡ä»¶æˆ–æŒ‡å®šåºå·çš„éŸ³ä¹ã€‚
-- å¦‚æœæä¾› `index`ï¼Œåˆ™æ’­æ”¾æŒ‡å®šæ­Œå•ä¸­å¯¹åº”åºå·çš„éŸ³ä¹ã€‚
-- å¦‚æœæä¾› `path`ï¼Œåˆ™å°†æ–‡ä»¶æ·»åŠ åˆ°æ­Œå•ï¼ˆ**è‡ªåŠ¨ç½®é¡¶**ï¼‰å¹¶æ’­æ”¾ã€‚
-- å¦‚æœåŒæ—¶æä¾›ï¼Œä¼˜å…ˆä½¿ç”¨ `index`ã€‚
-
-*   **URL**: `/play`
-*   **æ–¹æ³•**: `POST`
-*   **Content-Type**: `application/json`
-
-### è¯·æ±‚å‚æ•°
-
-| å­—æ®µå | ç±»å‹   | å¿…å¡« | æè¿°                               |
-| :----- | :----- | :--- | :--------------------------------- |
-| `path` | string | å¦*  | éŸ³ä¹æ–‡ä»¶çš„ç»å¯¹è·¯å¾„ã€‚å¦‚æœæœªæä¾› `index`ï¼Œåˆ™æ­¤é¡¹å¿…å¡«ã€‚ |
-| `index`| number | å¦*  | æ­Œå•ä¸­çš„æ­Œæ›²åºå·ï¼ˆä» 0 å¼€å§‹ï¼‰ã€‚å¦‚æœæä¾›äº†æ­¤é¡¹ï¼Œå°†å¿½ç•¥ `path`ã€‚ |
-| `playlist` | string | å¦ | ç›®æ ‡æ­Œå•åç§°ã€‚å¦‚æœä¸å¡«ï¼Œé»˜è®¤ä¸ºå½“å‰é€‰ä¸­çš„æ­Œå•ã€‚ |
-
-### è¯·æ±‚ç¤ºä¾‹
-
-**1. æ’­æ”¾æŒ‡å®šæ–‡ä»¶ï¼ˆè‡ªåŠ¨æ·»åŠ åˆ°åˆ—è¡¨é¡¶éƒ¨ï¼‰ï¼š**
-```json
-{
-  "path": "D:\\Music\\song.mp3"
-}
-```
-
-**2. æ’­æ”¾å½“å‰æ­Œå•çš„ç¬¬ 1 é¦–æ­Œï¼ˆåºå· 0ï¼‰ï¼š**
-```json
-{
-  "index": 0
-}
-```
-
-**3. æ’­æ”¾æŒ‡å®šæ­Œå•çš„ç¬¬ 2 é¦–æ­Œï¼š**
-```json
-{
-  "index": 1,
-  "playlist": "æˆ‘çš„æœ€çˆ±"
-}
-```
-
-### å“åº”
-
-*   **æˆåŠŸ (200 OK)**:
-    ```json
-    "Playing in é»˜è®¤åˆ—è¡¨"
-    ```
-*   **å¤±è´¥ (200 OK)** (æ–‡ä»¶ä¸å­˜åœ¨æˆ–åºå·è¶Šç•Œ):
-    ```json
-    "File not found or invalid request"
-    ```
-
-### Python è°ƒç”¨ç¤ºä¾‹
-
-```python
-# æ’­æ”¾æ–‡ä»¶
-client.play_file("D:\\Music\\song.mp3")
-
-# æ’­æ”¾å½“å‰æ­Œå•ç¬¬ 1 é¦–
-client.play_index(0)
-
-# æ’­æ”¾ "æˆ‘çš„æœ€çˆ±" æ­Œå•ç¬¬ 2 é¦–
-client.play_index(1, playlist="æˆ‘çš„æœ€çˆ±")
-```
+</div>
 
 ---
 
-## 2. è·å–æ’­æ”¾åˆ—è¡¨
+# Rweb Music Player
 
-è·å–å½“å‰æ’­æ”¾åˆ—è¡¨çš„å†…å®¹ï¼Œä»¥åŠæ‰€æœ‰å¯ç”¨æ­Œå•çš„åˆ—è¡¨ã€‚
+Rweb Music Player ÊÇÒ»¸ö»ùÓÚ Rust µÄÇáÁ¿¼¶ÒôÀÖ²¥·ÅÆ÷£¬×¨Îª¿ª·¢ÕßÉè¼Æ£¬Ìá¹©ÁËÇ¿´óµÄ HTTP API ½Ó¿Ú£¬Ö§³ÖÍ¨¹ıÍâ²¿½Å±¾£¨Èç Python£©½øĞĞÔ¶³Ì¿ØÖÆ¡£
 
-*   **URL**: `/playlist`
-*   **æ–¹æ³•**: `GET`
+## ¹¦ÄÜÌØĞÔ
 
-### å“åº”ç¤ºä¾‹
+- **²¥·Å¿ØÖÆ**£ºÖ§³ÖÍ¨¹ıÎÄ¼şÂ·¾¶»ò¸èµ¥ĞòºÅ²¥·ÅÒôÀÖ¡£
+- **¸èµ¥¹ÜÀí**£ºÖ§³Ö»ñÈ¡¡¢ÖØÃüÃû¡¢É¾³ı¸èµ¥£¬ÒÔ¼°´Ó¸èµ¥ÖĞÉ¾³ı¸èÇú¡£
+- **API ½Ó¿Ú**£ºÌá¹©ÏêÏ¸µÄ HTTP API£¬±ãÓÚ³ÌĞò»¯¿ØÖÆ¡£
+- **¶àÓïÑÔÖ§³Ö**£ºÖ§³ÖÖĞÎÄºÍÓ¢ÎÄ½çÃæÇĞ»»¡£
+- **¿çÆ½Ì¨**£º»ùÓÚ Rust ¿ª·¢£¬ÀíÂÛÉÏÖ§³Ö¶àÆ½Ì¨£¨Ä¿Ç°Ö÷ÒªÕë¶Ô Windows ÓÅ»¯£©¡£
 
-```json
-{
-  "current": "é»˜è®¤åˆ—è¡¨",
-  "files": [
-    {
-      "path": "D:\\Music\\song1.mp3",
-      "name": "song1.mp3",
-      "exists": true
-    },
-    {
-      "path": "D:\\Music\\missing.mp3",
-      "name": "missing.mp3",
-      "exists": false
-    }
-  ],
-  "all_playlists": [
-    "é»˜è®¤åˆ—è¡¨",
-    "æˆ‘çš„æœ€çˆ±"
-  ]
-}
-```
+## ¿ìËÙ¿ªÊ¼
 
-### Python è°ƒç”¨ç¤ºä¾‹
+1. ÏÂÔØ×îĞÂ Release °æ±¾¡£
+2. ÔËĞĞ `Rweb_music_player.exe`¡£
+3. Ê¹ÓÃ Python ½Å±¾»òÆäËû HTTP ¿Í»§¶Ëµ÷ÓÃ API ¿ØÖÆ²¥·ÅÆ÷¡£
 
-```python
-data = client.get_playlist()
-print(f"å½“å‰æ­Œå•: {data['current']}")
-for f in data['files']:
-    print(f['name'])
-```
+## API ÎÄµµ
 
----
+ÏêÏ¸µÄ API ÎÄµµÇë²Î¿¼ [API ÎÄµµ](README_API.md)¡£
 
-## 3. ä»æ’­æ”¾åˆ—è¡¨åˆ é™¤
+## Ğí¿ÉÖ¤Óë°æÈ¨ËµÃ÷
 
-ä»æŒ‡å®šæ­Œå•ä¸­åˆ é™¤æŒ‡å®šåºå·çš„æ­Œæ›²ã€‚
+±¾ÏîÄ¿²ÉÓÃ Apache License 2.0 Ğí¿ÉÖ¤¿ªÔ´¡£
 
-*   **URL**: `/playlist/remove`
-*   **æ–¹æ³•**: `POST`
-*   **Content-Type**: `application/json`
+### ×ÖÌåÊ¹ÓÃËµÃ÷
 
-### è¯·æ±‚å‚æ•°
+±¾ÏîÄ¿ÔÚ Windows Æ½Ì¨ÉÏÔËĞĞÊ±£¬Ä¬ÈÏÊ¹ÓÃÏµÍ³×Ô´øµÄ **Î¢ÈíÑÅºÚ (Microsoft YaHei)** ×ÖÌå¡£
+- ¸Ã×ÖÌå°æÈ¨¹é Microsoft Corporation ËùÓĞ¡£
+- ±¾ÏîÄ¿½öµ÷ÓÃÏµÍ³ÒÑ°²×°µÄ×ÖÌåÎÄ¼ş£¬²»·Ö·¢ÈÎºÎ×ÖÌåÎÄ¼ş¡£
+- Èç¹ûÄúÔÚ·Ç Windows Æ½Ì¨ÔËĞĞ£¬»òÏ£ÍûÊ¹ÓÃÆäËû×ÖÌå£¬ÇëĞŞ¸ÄÔ´ÂëÖĞµÄ×ÖÌåÅäÖÃ¡£
 
-| å­—æ®µå | ç±»å‹   | å¿…å¡« | æè¿°                               |
-| :----- | :----- | :--- | :--------------------------------- |
-| `index`| number | æ˜¯   | è¦åˆ é™¤çš„æ­Œæ›²åºå·ï¼ˆä» 0 å¼€å§‹ï¼‰ã€‚ |
-| `playlist` | string | å¦ | ç›®æ ‡æ­Œå•åç§°ã€‚å¦‚æœä¸å¡«ï¼Œé»˜è®¤ä¸ºå½“å‰é€‰ä¸­çš„æ­Œå•ã€‚ |
+### µÚÈı·½¿â
 
-### è¯·æ±‚ç¤ºä¾‹
+±¾ÏîÄ¿Ê¹ÓÃÁËÒÔÏÂ¿ªÔ´¿â£º
+- [egui](https://github.com/emilk/egui) (MIT/Apache-2.0)
+- [axum](https://github.com/tokio-rs/axum) (MIT)
+- [rodio](https://github.com/RustAudio/rodio) (MIT/Apache-2.0)
+- [lofty](https://github.com/Serial-ATA/lofty-rs) (MIT/Apache-2.0)
+- [tokio](https://github.com/tokio-rs/tokio) (MIT)
 
-```json
-{
-  "index": 0
-}
-```
+ÍêÕûÒÀÀµÁĞ±íÇë²é¿´ `Cargo.toml`¡£
 
-### å“åº”
+## ¹±Ï×
 
-*   **æˆåŠŸ (200 OK)**:
-    ```json
-    "Removed item 0 from é»˜è®¤åˆ—è¡¨"
-    ```
-*   **å¤±è´¥ (200 OK)** (åºå·è¶Šç•Œ):
-    ```json
-    "Index out of bounds"
-    ```
-
-### Python è°ƒç”¨ç¤ºä¾‹
-
-```python
-# åˆ é™¤å½“å‰æ­Œå•ç¬¬ 1 é¦–æ­Œ
-client.remove_from_playlist(0)
-
-# åˆ é™¤ "æˆ‘çš„æœ€çˆ±" æ­Œå•ç¬¬ 3 é¦–æ­Œ
-client.remove_from_playlist(2, playlist="æˆ‘çš„æœ€çˆ±")
-```
-
----
-
-## 4. é‡å‘½åæ­Œå•
-
-é‡å‘½åç°æœ‰çš„æ­Œå•ã€‚
-
-*   **URL**: `/playlist/rename`
-*   **æ–¹æ³•**: `POST`
-*   **Content-Type**: `application/json`
-
-### è¯·æ±‚å‚æ•°
-
-| å­—æ®µå | ç±»å‹   | å¿…å¡« | æè¿°                               |
-| :----- | :----- | :--- | :--------------------------------- |
-| `old_name` | string | æ˜¯ | åŸæ­Œå•åç§°ã€‚ |
-| `new_name` | string | æ˜¯ | æ–°æ­Œå•åç§°ã€‚ |
-
-### è¯·æ±‚ç¤ºä¾‹
-
-```json
-{
-  "old_name": "é»˜è®¤åˆ—è¡¨",
-  "new_name": "æˆ‘çš„æ­Œå•"
-}
-```
-
-### å“åº”
-
-*   **æˆåŠŸ**: `"Playlist renamed"`
-*   **å¤±è´¥**: `"Playlist not found"` æˆ– `"New name already exists"`
-
-### Python è°ƒç”¨ç¤ºä¾‹
-
-```python
-client.rename_playlist("é»˜è®¤åˆ—è¡¨", "æ–°æ­Œå•åç§°")
-```
-
----
-
-## 5. åˆ é™¤æ­Œå•
-
-åˆ é™¤æŒ‡å®šçš„æ­Œå•ã€‚æ³¨æ„ï¼šæ— æ³•åˆ é™¤æœ€åä¸€ä¸ªå‰©ä½™çš„æ­Œå•ã€‚
-
-*   **URL**: `/playlist/delete`
-*   **æ–¹æ³•**: `POST`
-*   **Content-Type**: `application/json`
-
-### è¯·æ±‚å‚æ•°
-
-| å­—æ®µå | ç±»å‹   | å¿…å¡« | æè¿°                               |
-| :----- | :----- | :--- | :--------------------------------- |
-| `name` | string | æ˜¯ | è¦åˆ é™¤çš„æ­Œå•åç§°ã€‚ |
-
-### è¯·æ±‚ç¤ºä¾‹
-
-```json
-{
-  "name": "æˆ‘çš„æ­Œå•"
-}
-```
-
-### å“åº”
-
-*   **æˆåŠŸ**: `"Playlist deleted"`
-*   **å¤±è´¥**: `"Playlist not found"` æˆ– `"Cannot delete the last playlist"`
-
-### Python è°ƒç”¨ç¤ºä¾‹
-
-```python
-client.delete_playlist("ä¸éœ€è¦çš„æ­Œå•")
-```
-
----
-
-## 6. é™„å½•ï¼šPython å®¢æˆ·ç«¯ç±»å°è£…
-
-ä¸ºäº†æ–¹ä¾¿è°ƒç”¨ï¼Œå»ºè®®ä½¿ç”¨ä»¥ä¸‹å°è£…ç±»ï¼ˆå·²åŒ…å«åœ¨ `test_api.py` ä¸­ï¼‰ï¼š
-
-```python
-import requests
-
-class MusicPlayerClient:
-    def __init__(self, base_url="http://127.0.0.1:3000"):
-        # å¦‚æœä¿®æ”¹äº†ç«¯å£ï¼Œè¯·åœ¨åˆå§‹åŒ–æ—¶ä¼ å…¥æ–°çš„ URLï¼Œä¾‹å¦‚ "http://127.0.0.1:8080"
-        self.base_url = base_url
-
-    def _post(self, url, payload):
-        try:
-            response = requests.post(url, json=payload)
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
-
-    def play_file(self, path, playlist=None):
-        """æ’­æ”¾æŒ‡å®šæ–‡ä»¶"""
-        payload = {"path": path}
-        if playlist: payload["playlist"] = playlist
-        return self._post(f"{self.base_url}/play", payload)
-
-    def play_index(self, index, playlist=None):
-        """æ’­æ”¾æŒ‡å®šåºå·"""
-        payload = {"index": int(index)}
-        if playlist: payload["playlist"] = playlist
-        return self._post(f"{self.base_url}/play", payload)
-
-    def get_playlist(self):
-        """è·å–æ’­æ”¾åˆ—è¡¨"""
-        try:
-            return requests.get(f"{self.base_url}/playlist").json()
-        except Exception as e:
-            return {"error": str(e)}
-
-    def remove_from_playlist(self, index, playlist=None):
-        """åˆ é™¤æ­Œæ›²"""
-        payload = {"index": int(index)}
-        if playlist: payload["playlist"] = playlist
-        return self._post(f"{self.base_url}/playlist/remove", payload)
-
-    def rename_playlist(self, old_name, new_name):
-        """é‡å‘½åæ­Œå•"""
-        payload = {"old_name": old_name, "new_name": new_name}
-        return self._post(f"{self.base_url}/playlist/rename", payload)
-
-    def delete_playlist(self, name):
-        """åˆ é™¤æ­Œå•"""
-        payload = {"name": name}
-        return self._post(f"{self.base_url}/playlist/delete", payload)
-```
+»¶Ó­Ìá½» Issue ºÍ Pull Request£¡
