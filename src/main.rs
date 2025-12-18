@@ -1392,6 +1392,12 @@ impl eframe::App for MusicPlayerApp {
                         let font_id = egui::FontId::proportional(14.0);
                         let text_galley = child_ui.painter().layout_no_wrap(text.clone(), font_id, text_color);
                         let text_width = text_galley.size().x;
+
+                        // When playback is paused, the app may not repaint continuously.
+                        // For hover-scrolling labels, request a repaint while hovered so the animation keeps running.
+                        if is_hovered && text_width > rect.width() {
+                            ctx.request_repaint();
+                        }
                         
                         if text_width <= rect.width() || !is_hovered {
                             // Center vertically
